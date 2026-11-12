@@ -1,4 +1,5 @@
 import json
+
 from pathlib import Path
 from time import time
 
@@ -57,6 +58,7 @@ def append_jsonl(filename, data):
         f.write("\n")
 
 
+
 def fit(model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
@@ -65,10 +67,18 @@ def fit(model: nn.Module,
     device: torch.device,
     run_dir: Path,
     train_config: TrainConfig,
+    resume: Path | None = None,
 ):
+    start_epoch = 0
+    if resume is not None:
+        checkpoint = torch.load(resume, map_location="cpu", weights_only=True)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start_epoch = checkpoint["epoch"]
+        print(f"Resuming after epoch {start_epoch}; target: {train_config.max_epochs} epochs")
 
     model.train()
-    for epoch in range(train_config.max_epochs):
+    for epoch in range(start_epoch, train_config.max_epochs):
         epoch_start = time()
         epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config)
         epoch_end = time()
@@ -92,5 +102,14 @@ def fit(model: nn.Module,
             row = {"epoch": epoch + 1, **validation_metrics}
             print(row)
             append_jsonl(run_dir / "val_losses.jsonl", row)
+
+        checkpoint = {
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "epoch": epoch + 1,
+        }
+        torch.save(checkpoint, run_dir / "checkpoint_last.pt")
+        if epoch + 1 == train_config.max_epochs:
+            torch.save(checkpoint, run_dir / f"checkpoint_{epoch + 1:04d}.pt")
 
     return model

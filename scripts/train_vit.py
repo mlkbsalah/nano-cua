@@ -1,11 +1,8 @@
-
 from argparse import ArgumentParser
 from pathlib import Path
 
-
 import torch
 from datasets import load_dataset
-
 from torchvision.transforms import Compose, Normalize, ToTensor
 
 from nano_cua.config import load_config, save_config
@@ -42,8 +39,11 @@ def get_device():
 
 
 
-def main(run_dir):
+def main(run_dir, resume=None):
+    if resume is not None:
+        run_dir = Path(resume).parent
     config = load_config(CONFIG_PATH, VisionTransformerConfig)
+    run_dir.mkdir(parents=True, exist_ok=True)
     save_config(config, run_dir)
 
     device = get_device()
@@ -80,14 +80,10 @@ def main(run_dir):
         train_config=config.train,
         run_dir=run_dir,
         device=device,
+        resume=resume,
     )
 
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-        },
-        run_dir / f"checkpoint_{config.train.max_epochs:04d}.pt")
+
 
 
 
@@ -96,9 +92,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--run_dir",
         type=Path,
-        required=True
+        help="Directory for a new run; inferred from --resume when resuming"
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Resume training from a checkpoint",
     )
     args = parser.parse_args()
 
-    args.run_dir.mkdir(parents=True, exist_ok=False)
-    main(args.run_dir)
+    if args.resume is None and args.run_dir is None:
+        parser.error("--run_dir is required when not resuming from a checkpoint")
+
+    main(args.run_dir, resume=args.resume)

@@ -11,7 +11,6 @@ from nano_cua.ResNet import ResNet18, ResNetConfig
 from nano_cua.seeding import seed_everything, seed_worker
 from nano_cua.trainer import fit
 
-
 CONFIG_PATH = Path("config/resnet_config.yaml")
 
 def create_transform():
@@ -36,9 +35,12 @@ def get_device():
         return torch.device("mps")
     return torch.device("cpu")
 
-def main(run_dir):
-
-    config = load_config(CONFIG_PATH, ResNetConfig)
+def main(run_dir, resume=None):
+    if resume is not None:
+        run_dir = Path(resume).parent
+    config_path = (Path(resume).parent / "run_config.yaml" if resume is not None else CONFIG_PATH)
+    config = load_config(config_path, ResNetConfig)
+    run_dir.mkdir(parents=True, exist_ok=resume is not None)
     save_config(config, run_dir)
 
 
@@ -82,15 +84,11 @@ def main(run_dir):
         train_config=config.train,
         run_dir=run_dir,
         device=device,
+        resume=resume,
     )
 
 
-    torch.save(
-        {
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-        },
-        run_dir / f"checkpoint_{config.train.max_epochs}.pt")
+
 
 
 
@@ -100,9 +98,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--run_dir",
         type=Path,
-        required=True
+        help="Directory for a new run; inferred from --resume when resuming"
     )
+    parser.add_argument("--resume", type=Path, default=None,
+                        help="Resume training from a checkpoint")
     args = parser.parse_args()
 
-    args.run_dir.mkdir(parents=True, exist_ok=False)
-    main(args.run_dir)
+    if args.resume is None and args.run_dir is None:
+        parser.error("--run_dir is required when not resuming from a checkpoint")
+
+    main(args.run_dir, resume=args.resume)
