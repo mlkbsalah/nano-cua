@@ -1,3 +1,9 @@
 train_gym.tar
 plan.md
 .venv/
+docs/
+config/
+runs/
+**/__pycache__/
+*.egg-info/
+.DS_Store
