@@ -1,6 +1,6 @@
 import json
-
 from pathlib import Path
+from profile import run
 from time import time
 
 import torch
@@ -70,15 +70,20 @@ def fit(model: nn.Module,
     resume: Path | None = None,
 ):
     start_epoch = 0
+    best_val_loss = float("inf")
+    best_epoch = None
     if resume is not None:
         checkpoint = torch.load(resume, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = checkpoint["epoch"]
+        best_val_loss = checkpoint["best_val_loss"]
+        best_epoch = checkpoint["best_epoch"]
         print(f"Resuming after epoch {start_epoch}; target: {train_config.max_epochs} epochs")
-
     model.train()
     for epoch in range(start_epoch, train_config.max_epochs):
+        is_best = False
+
         epoch_start = time()
         epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config)
         epoch_end = time()
@@ -99,6 +104,11 @@ def fit(model: nn.Module,
                 validation_metrics = evaluate(model, val_loader, device, criterion)
                 model.train()
 
+                if validation_metrics["val_loss"] < best_val_loss:
+                    is_best = True
+                    best_val_loss = validation_metrics["val_loss"]
+                    best_epoch = epoch + 1
+
             row = {"epoch": epoch + 1, **validation_metrics}
             print(row)
             append_jsonl(run_dir / "val_losses.jsonl", row)
@@ -107,8 +117,14 @@ def fit(model: nn.Module,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "epoch": epoch + 1,
+            "best_val_loss": best_val_loss,
+            "epoch_epoch": best_epoch,
         }
+
         torch.save(checkpoint, run_dir / "checkpoint_last.pt")
+        if is_best:
+            torch.save(checkpoint, run_dir / "checkpoint_best_val.pt")
+
         if epoch + 1 == train_config.max_epochs:
             torch.save(checkpoint, run_dir / f"checkpoint_{epoch + 1:04d}.pt")
 
