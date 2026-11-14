@@ -1,6 +1,7 @@
 import json
+import signal
+from contextlib import contextmanager
 from pathlib import Path
-from profile import run
 from time import time
 
 import torch
@@ -59,6 +60,29 @@ def append_jsonl(filename, data):
 
 
 
+@contextmanager
+def stop_after_epoch(enabled: bool = True):
+    if not enabled:
+        yield lambda: False
+        return
+
+    stop_requested = False
+
+    def request_stop(signum, frame):
+        nonlocal stop_requested
+        if stop_requested:
+            raise KeyboardInterrupt
+        stop_requested = True
+        print("Stopping after this epoch. Press Ctrl+C again to stop immediately.", flush=True)
+
+    previous_handlers = {sig: signal.signal(sig, request_stop) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield lambda: stop_requested
+    finally:
+        for sig, handler in previous_handlers.items():
+            signal.signal(sig, handler)
+
+
 def fit(model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
@@ -68,10 +92,12 @@ def fit(model: nn.Module,
     run_dir: Path,
     train_config: TrainConfig,
     resume: Path | None = None,
+    handle_signals: bool = True,
 ):
     start_epoch = 0
     best_val_loss = float("inf")
     best_epoch = None
+    path_best = Path(run_dir) / "checkpoint_best_tmp.pt"
     if resume is not None:
         checkpoint = torch.load(resume, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -80,52 +106,58 @@ def fit(model: nn.Module,
         best_val_loss = checkpoint["best_val_loss"]
         best_epoch = checkpoint["best_epoch"]
         print(f"Resuming after epoch {start_epoch}; target: {train_config.max_epochs} epochs")
-    model.train()
-    for epoch in range(start_epoch, train_config.max_epochs):
-        is_best = False
+    with stop_after_epoch(enabled=handle_signals) as stop_requested:
+        model.train()
+        for epoch in range(start_epoch, train_config.max_epochs):
+            is_best = False
 
-        epoch_start = time()
-        epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config)
-        epoch_end = time()
+            epoch_start = time()
+            epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config)
+            epoch_end = time()
 
-        epoch_metrics["Img/s"] = epoch_metrics.pop("samples_seen") / (epoch_end - epoch_start)
-        row = {
-            "epoch": epoch + 1,
-            "epoch_time": epoch_end - epoch_start,
-            **epoch_metrics
-        }
-        print(row)
-        append_jsonl(run_dir / "train_losses.jsonl", row)
-
-
-        if (epoch + 1) % train_config.validation_interval == 0 or epoch == train_config.max_epochs - 1:
-            with torch.inference_mode():
-                model.eval()
-                validation_metrics = evaluate(model, val_loader, device, criterion)
-                model.train()
-
-                if validation_metrics["val_loss"] < best_val_loss:
-                    is_best = True
-                    best_val_loss = validation_metrics["val_loss"]
-                    best_epoch = epoch + 1
-
-            row = {"epoch": epoch + 1, **validation_metrics}
+            epoch_metrics["Img/s"] = epoch_metrics.pop("samples_seen") / (epoch_end - epoch_start)
+            row = {
+                "epoch": epoch + 1,
+                "epoch_time": epoch_end - epoch_start,
+                **epoch_metrics
+            }
             print(row)
-            append_jsonl(run_dir / "val_losses.jsonl", row)
+            append_jsonl(run_dir / "train_losses.jsonl", row)
 
-        checkpoint = {
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "epoch": epoch + 1,
-            "best_val_loss": best_val_loss,
-            "epoch_epoch": best_epoch,
-        }
+            if stop_requested() or (epoch + 1) % train_config.validation_interval == 0 or epoch == train_config.max_epochs - 1:
+                with torch.inference_mode():
+                    model.eval()
+                    validation_metrics = evaluate(model, val_loader, device, criterion)
+                    model.train()
 
-        torch.save(checkpoint, run_dir / "checkpoint_last.pt")
-        if is_best:
-            torch.save(checkpoint, run_dir / "checkpoint_best_val.pt")
+                    if validation_metrics["val_loss"] < best_val_loss:
+                        is_best = True
+                        best_val_loss = validation_metrics["val_loss"]
+                        best_epoch = epoch + 1
 
-        if epoch + 1 == train_config.max_epochs:
-            torch.save(checkpoint, run_dir / f"checkpoint_{epoch + 1:04d}.pt")
+                row = {"epoch": epoch + 1, **validation_metrics}
+                print(row)
+                append_jsonl(run_dir / "val_losses.jsonl", row)
+
+            checkpoint = {
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "epoch": epoch + 1,
+                "best_val_loss": best_val_loss,
+                "best_epoch": best_epoch,
+            }
+
+            torch.save(checkpoint, run_dir / "checkpoint_last.pt")
+            if is_best:
+                path_best.unlink(missing_ok=True)
+                path_best = run_dir / f"checkpoint_best_epoch={best_epoch}_val={best_val_loss:.4f}.pt"
+                torch.save(checkpoint, path_best)
+
+            if epoch + 1 == train_config.max_epochs:
+                torch.save(checkpoint, run_dir / f"checkpoint_{epoch + 1:04d}.pt")
+
+            if stop_requested():
+                print(f"Epoch {epoch + 1} saved. Stopping.")
+                break
 
     return model

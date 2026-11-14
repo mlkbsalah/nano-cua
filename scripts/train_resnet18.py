@@ -35,7 +35,7 @@ def get_device():
         return torch.device("mps")
     return torch.device("cpu")
 
-def main(run_dir, resume=None):
+def main(run_dir, resume=None, handle_signals=True):
     if resume is not None:
         run_dir = Path(resume).parent
     config_path = (Path(resume).parent / "run_config.yaml" if resume is not None else CONFIG_PATH)
@@ -85,6 +85,7 @@ def main(run_dir, resume=None):
         run_dir=run_dir,
         device=device,
         resume=resume,
+        handle_signals=handle_signals,
     )
 
 
