@@ -49,7 +49,7 @@ def main(run_dir, resume=None, handle_signals=True):
 
 
 
-    dataset = load_dataset("uoft-cs/cifar100")
+    dataset = load_dataset(config.data.name, revision=config.data.revision)
 
     dataset.set_transform(create_transform())
     train_loader = torch.utils.data.DataLoader(
@@ -57,8 +57,8 @@ def main(run_dir, resume=None, handle_signals=True):
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
-    test_loader = torch.utils.data.DataLoader(
-        dataset["test"], batch_size=config.train.val_batch_size, shuffle=False, # type: ignore
+    val_loader = torch.utils.data.DataLoader(
+        dataset["val"], batch_size=config.train.val_batch_size, shuffle=False, # type: ignore
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
@@ -78,7 +78,7 @@ def main(run_dir, resume=None, handle_signals=True):
     model = fit(
         model=model,
         train_loader=train_loader,
-        val_loader=test_loader,
+        val_loader=val_loader,
         optimizer=optimizer,
         criterion=criterion,
         train_config=config.train,

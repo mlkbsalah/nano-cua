@@ -6,7 +6,7 @@ import yaml
 
 @dataclass(frozen=True)
 class DatasetConfig:
-    repo_id: str
+    name: str
     revision: str
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class TrainConfig:
 class Config[ModelConfigT]:
     model: ModelConfigT
     train: TrainConfig
-    dataset: DatasetConfig
+    data: DatasetConfig
 
 ## Nice little trick for the future, it's just for the type checker tho
 # “Declare a type placeholder T. Accept a file path and a class for T. Return a Config whose model field contains an instance of T.”
@@ -35,7 +35,7 @@ def load_config[ModelConfigT](path: Path, model_config_type: type[ModelConfigT])
     return Config(
         model=model_config_type(**data["model"]),
         train=TrainConfig(**data["train"]),
-        dataset=DatasetConfig(**data["dataset"]),
+        data=DatasetConfig(**data["dataset"]),
     )
 
 
