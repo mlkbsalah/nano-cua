@@ -4,11 +4,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from time import time
 
-
 import torch
 from torch import nn
-from torch.optim.optimizer import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from .config import TrainConfig

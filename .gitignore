@@ -9,3 +9,4 @@ runs/
 .DS_Store
 .agents/
 .uv-cache/
+dist/

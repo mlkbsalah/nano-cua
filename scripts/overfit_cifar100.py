@@ -61,12 +61,12 @@ def main(model, run_dir, resume=None, handle_signals=True):
     dataset = load_dataset("uoft-cs/cifar100")["train"].select(range(256))
     dataset.set_transform(create_transform())
     train_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=config.train.train_batch_size, shuffle=True,
+        dataset, batch_size=config.train.train_batch_size, shuffle=True, # type: ignore
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
     val_loader = torch.utils.data.DataLoader(
-        dataset, batch_size=config.train.val_batch_size, shuffle=False,
+        dataset, batch_size=config.train.val_batch_size, shuffle=False, # type: ignore
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
