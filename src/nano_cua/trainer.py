@@ -4,15 +4,17 @@ from contextlib import contextmanager
 from pathlib import Path
 from time import time
 
+
 import torch
 from torch import nn
 from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
 
 from .config import TrainConfig
 
 
-def train_epoch(model, train_loader, device, optimizer, criterion, train_config):
+def train_epoch(model, train_loader, device, optimizer, criterion, train_config, scheduler):
     loss_sum = 0.0
     norm_sum = 0.0
     samples_seen = 0
@@ -27,6 +29,7 @@ def train_epoch(model, train_loader, device, optimizer, criterion, train_config)
         loss.backward()
         norm= nn.utils.clip_grad_norm_(model.parameters(), train_config.max_grad_norm)
         optimizer.step()
+        scheduler.step()
 
         loss_sum += loss.item() * img.size(0)
         norm_sum += norm.item() * img.size(0)
@@ -83,10 +86,14 @@ def stop_after_epoch(enabled: bool = True):
             signal.signal(sig, handler)
 
 
+
+
+
 def fit(model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
     optimizer: Optimizer,
+    scheduler: LRScheduler,
     criterion: nn.Module,
     device: torch.device,
     run_dir: Path,
@@ -98,10 +105,12 @@ def fit(model: nn.Module,
     best_val_loss = float("inf")
     best_epoch = None
     path_best = Path(run_dir) / "checkpoint_best_tmp.pt"
+
     if resume is not None:
         checkpoint = torch.load(resume, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"]
         best_val_loss = checkpoint["best_val_loss"]
         best_epoch = checkpoint["best_epoch"]
@@ -112,13 +121,14 @@ def fit(model: nn.Module,
             is_best = False
 
             epoch_start = time()
-            epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config)
+            epoch_metrics = train_epoch(model, train_loader, device, optimizer, criterion, train_config, scheduler)
             epoch_end = time()
 
             epoch_metrics["Img/s"] = epoch_metrics.pop("samples_seen") / (epoch_end - epoch_start)
             row = {
                 "epoch": epoch + 1,
                 "epoch_time": epoch_end - epoch_start,
+                "next_lr": optimizer.param_groups[0]["lr"],
                 **epoch_metrics
             }
             print(row)
@@ -142,6 +152,7 @@ def fit(model: nn.Module,
             checkpoint = {
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
                 "epoch": epoch + 1,
                 "best_val_loss": best_val_loss,
                 "best_epoch": best_epoch,

@@ -19,6 +19,7 @@ class TrainConfig:
     weight_decay: float
     max_grad_norm: float
     seed: int
+    warmup_epochs: int = 5
 
 @dataclass(frozen=True)
 class Config[ModelConfigT]:

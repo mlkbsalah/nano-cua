@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 from datasets import load_dataset
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torchvision.transforms import Compose, Normalize, ToTensor
 
 from nano_cua.config import load_config, save_config
@@ -39,7 +40,7 @@ def get_device():
 
 
 
-def main(run_dir, resume=None):
+def main(run_dir, resume=None, handle_signals=True):
     if resume is not None:
         run_dir = Path(resume).parent
     config = load_config(CONFIG_PATH, VisionTransformerConfig)
@@ -69,6 +70,17 @@ def main(run_dir, resume=None):
         model.parameters(),
         lr=config.train.lr,
         weight_decay=config.train.weight_decay)
+
+    total_steps = config.train.max_epochs * len(train_loader)
+    warmup_steps = config.train.warmup_epochs * len(train_loader)
+    scheduler = SequentialLR(
+        optimizer,
+        schedulers=[
+            LinearLR(optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup_steps),
+            CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps, eta_min=1e-6),
+        ],
+        milestones=[warmup_steps],
+    )
     criterion = torch.nn.CrossEntropyLoss()
 
     model = fit(
@@ -76,11 +88,13 @@ def main(run_dir, resume=None):
         train_loader=train_loader,
         val_loader=test_loader,
         optimizer=optimizer,
+        scheduler=scheduler,
         criterion=criterion,
         train_config=config.train,
         run_dir=run_dir,
         device=device,
         resume=resume,
+        handle_signals=handle_signals,
     )
 
 
