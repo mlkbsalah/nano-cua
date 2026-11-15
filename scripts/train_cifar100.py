@@ -1,3 +1,4 @@
+
 from argparse import ArgumentParser
 from pathlib import Path
 
@@ -7,11 +8,11 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 from torchvision.transforms import Compose, Normalize, ToTensor
 
 from nano_cua.config import load_config, save_config
+from nano_cua.ResNet import ResNet18, ResNetConfig
 from nano_cua.seeding import seed_everything, seed_worker
 from nano_cua.trainer import fit
 from nano_cua.ViT import VisionTransformer, VisionTransformerConfig
 
-CONFIG_PATH = Path("config/vit_config.yaml")
 
 def create_transform():
     preprocess = Compose([
@@ -37,34 +38,49 @@ def get_device():
     return torch.device("cpu")
 
 
+def resolve_model(model: str) -> tuple[type, type, Path]:
+    if model == "resnet":
+        config_path = Path("config/resnet_config.yaml")
+        return ResNet18, ResNetConfig, config_path
+    elif model == "vit":
+        config_path = Path("config/vit_config.yaml")
+        return VisionTransformer, VisionTransformerConfig, config_path
+    else:
+        raise ValueError(f"Unknown model: {model}")
 
 
+def main(model, run_dir, resume=None, handle_signals=True):
+    model_class, config_class, config_path = resolve_model(model)
+    run_dir = Path(resume).parent if resume is not None else run_dir
+    config_path = (Path(resume).parent / "run_config.yaml" if resume is not None else config_path)
 
-def main(run_dir, resume=None, handle_signals=True):
-    if resume is not None:
-        run_dir = Path(resume).parent
-    config = load_config(CONFIG_PATH, VisionTransformerConfig)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    config = load_config(config_path, config_class)
+    run_dir.mkdir(parents=True, exist_ok=resume is not None)
     save_config(config, run_dir)
 
     device = get_device()
     seed_everything(config.train.seed)
 
-    dataset = load_dataset("uoft-cs/cifar100")
+
+
+    dataset = load_dataset(config.data.name, revision=config.data.revision)
+
     dataset.set_transform(create_transform())
     train_loader = torch.utils.data.DataLoader(
         dataset["train"], batch_size=config.train.train_batch_size, shuffle=True, # type: ignore
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
-    test_loader = torch.utils.data.DataLoader(
-        dataset["test"], batch_size=config.train.val_batch_size, shuffle=False,# type: ignore
+    val_loader = torch.utils.data.DataLoader(
+        dataset["val"], batch_size=config.train.val_batch_size, shuffle=False, # type: ignore
         generator=torch.Generator().manual_seed(config.train.seed),
         worker_init_fn=seed_worker,
     )
 
-    model = VisionTransformer(config.model)
+
+    model = model_class(config.model)
     model = model.to(device)
+
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -83,10 +99,11 @@ def main(run_dir, resume=None, handle_signals=True):
     )
     criterion = torch.nn.CrossEntropyLoss()
 
+
     model = fit(
         model=model,
         train_loader=train_loader,
-        val_loader=test_loader,
+        val_loader=val_loader,
         optimizer=optimizer,
         scheduler=scheduler,
         criterion=criterion,
@@ -101,8 +118,16 @@ def main(run_dir, resume=None, handle_signals=True):
 
 
 
+
 if __name__ == "__main__":
     parser = ArgumentParser()
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        choices=["resnet", "vit"],
+        help="Model to train (resnet, vit)"
+    )
     parser.add_argument(
         "--run_dir",
         type=Path,
@@ -112,11 +137,11 @@ if __name__ == "__main__":
         "--resume",
         type=Path,
         default=None,
-        help="Resume training from a checkpoint",
+        help="Resume training from a checkpoint"
     )
     args = parser.parse_args()
 
+
     if args.resume is None and args.run_dir is None:
         parser.error("--run_dir is required when not resuming from a checkpoint")
-
-    main(args.run_dir, resume=args.resume)
+    main(args.model, args.run_dir, resume=args.resume)

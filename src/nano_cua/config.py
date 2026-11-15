@@ -36,7 +36,7 @@ def load_config[ModelConfigT](path: Path, model_config_type: type[ModelConfigT])
     return Config(
         model=model_config_type(**data["model"]),
         train=TrainConfig(**data["train"]),
-        data=DatasetConfig(**data["dataset"]),
+        data=DatasetConfig(**data["data"]),
     )
 
 
