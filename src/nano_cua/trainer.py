@@ -124,7 +124,7 @@ def fit(model: nn.Module,
             print(row)
             append_jsonl(run_dir / "train_losses.jsonl", row)
 
-            if stop_requested() or (epoch + 1) % train_config.validation_interval == 0 or epoch == train_config.max_epochs - 1:
+            if stop_requested() or (epoch + 1) % train_config.validation_interval == 0 or epoch == train_config.max_epochs - 1 or epoch == 0:
                 with torch.inference_mode():
                     model.eval()
                     validation_metrics = evaluate(model, val_loader, device, criterion)
